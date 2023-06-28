@@ -86,13 +86,31 @@
 
 //=============================================================================
 //新功能:
-//版本更新时间：
-//更新版本号：
+//版本更新时间：2023/06/25
+//更新版本号：0.1.52
 //更新作者：Yun_wu
 //=============================================================================
-//		1.TODO:优化移动力增加/减少的显示方式（暂时无法体现在状态栏中）
-//		2.TODO:
-//		3.TODO:
+//		1.优化移动力增加/减少的显示方式，可以实时体现在状态栏中
+//		2.优化移动力的计算方式，整合成单独函数mov2进行计算
+//		3.可在武器装备中增加/减少移动力
+//=============================================================================
+
+//=============================================================================
+//新功能:
+//版本更新时间：2023/06/26
+//更新版本号：0.1.53
+//更新作者：Yun_wu
+//=============================================================================
+//		1.新增属性升降显示,可以根据实际属性增强而变换颜色
+//=============================================================================
+
+//=============================================================================
+//新功能:
+//版本更新时间：2023/06/27
+//更新版本号：0.1.54
+//更新作者：Yun_wu
+//=============================================================================
+//		1.修复了停止行动之后，覆盖掉hp条和异常状态栏的情况
 //=============================================================================
 
 //=============================================================================
@@ -104,6 +122,7 @@
 //		1.TODO:多段伤害(似乎无需脚本)
 //		2.TODO:匹配武器技能(需要加入新插件)
 //		3.TODO:新增移动/行动恢复系道具
+//		5.TODO:大量技能的显示情况
 //=============================================================================
 
 //=============================================================================
@@ -948,6 +967,94 @@ Imported.TMSrpg = true;
     return Math.max(result, 0);
   };
 
+  // SRPGの移動力を返す
+  //新增mov_up、mov_down、dot_mov状态信息
+  //将移动力单独提取计算
+  Game_BattlerBase.prototype.mov2 = function() {
+    var mov = this.srpgParam('mov');
+	var i, equip;
+	var cant_mov = false;
+	if (this._states.length > 0) {
+		for (i = 0; i < this._states.length; i++) {
+			if($dataStates[this._states[i]].meta.mov_up) {
+				mov += Math.abs($dataStates[this._states[i]].meta.mov_up);
+			}
+			if($dataStates[this._states[i]].meta.mov_down) {
+				mov -= Math.abs($dataStates[this._states[i]].meta.mov_down);
+				if (mov < 0)
+					mov = 0;
+			}
+			if($dataStates[this._states[i]].meta.dot_mov) {
+				cant_mov = true;
+			}
+		}
+	}
+	if (this._equips) {
+		for (i = 0; i < this._equips.length; i++) {
+			if (this._equips[i]._dataClass === "weapon") {
+				equip = $dataWeapons[this._equips[i]._itemId];
+			} else if (this._equips[i]._dataClass === "armor") {
+				equip = $dataArmors[this._equips[i]._itemId];
+			}
+			if (equip && equip.meta.mov_up) {
+				mov += Math.abs(equip.meta.mov_up);
+			}
+			if (equip && equip.meta.mov_down) {
+				mov += Math.abs(equip.meta.mov_down);
+			}
+			if (equip && equip.meta.dot_mov) {
+				cant_mov = true;
+			}
+		}
+	}
+	if (cant_mov)
+		mov = 0;
+    return Math.max(mov, 0);
+  };
+
+  //将能力增加显示出来
+  Game_BattlerBase.prototype.params_coloring = function(paramId, level) {
+	if (this.param(paramId) === 0) {
+		 return -1;
+	}
+
+	var params_set;
+	if (level) {
+		params_set = $dataClasses[this._classId].params;
+		var actor_param = params_set[paramId][level];
+		if (this._equips) {
+			var equip;
+			for (i = 0; i < this._equips.length; i++) {
+				if (this._equips[i]._dataClass === "weapon") {
+					equip = $dataWeapons[this._equips[i]._itemId];
+				} else if (this._equips[i]._dataClass === "armor") {
+					equip = $dataArmors[this._equips[i]._itemId];
+				}
+				if (equip && equip.params[paramId] < 0) {
+					actor_param -= Math.abs(equip.params[paramId]);
+				}
+				if (equip && equip.params[paramId] > 0) {
+					actor_param += Math.abs(equip.params[paramId]);
+				}
+			}
+		}
+		if (this.param(paramId) > actor_param) {
+			return 1;
+		} else if (this.param(paramId) < actor_param){
+			return 2;
+		}
+	} else {
+		params_set = $dataEnemies[this._enemyId].params;
+		if (this.param(paramId) > params_set[paramId]) {
+			return 1;
+		} else if (this.param(paramId) < params_set[paramId]) {
+			return 2;
+		}
+	  }
+	return 0;
+  };
+
+
   // SRPGフラグを返す
   Game_BattlerBase.prototype.srpgFlag = function(tag) {
     return this.traitObjects().some(function(object) {
@@ -1083,6 +1190,10 @@ Imported.TMSrpg = true;
   
   // SRPG機能を有効にします
   Game_Map.prototype.srpgActivate = function() {
+/*	this.events().filter(function(event) {
+	  event.SrpgEventFilter(true);
+	  console.log(event);
+    });*/
     this._srpgActive = true;
     this._srpgActorTurn = false;
     this.changeSrpgTurnCount(0);
@@ -1848,6 +1959,8 @@ Imported.TMSrpg = true;
     this._srpgActorId = null;
     this._srpgEnemyId = null;
     this._srpgBattler = null;
+    this._srpgRefreshHpGauge = null;
+    this._srpgRefreshStateIcon = null;
     var srpgActorId = this.event().meta.srpgActor;
     if (srpgActorId) {
       this.setSelfSwitch('A', false);
@@ -1872,6 +1985,13 @@ Imported.TMSrpg = true;
       }
     }
     if (this.isSrpgUnit()) {
+	  //新增的refresh
+	  this._srpgRefreshHpGauge = 1;
+	  this._srpgRefreshStateIcon = 1;
+	  if (Imported.Drill_EventFilter) {
+		this._drill_EvF.openFilter = true;
+		this._drill_EvF.setColorLinear = ["黑白",0,1];
+	  }
       this.srpgBattler().setSrpgEventId(this.eventId());
       this.setSrpgAutoState();
       this.refreshRegionEffect(this.x, this.y, this.x, this.y);
@@ -1951,28 +2071,9 @@ Imported.TMSrpg = true;
   
   // イベントの移動力を返す
   Game_Event.prototype.mov = function() {
-    var mov = this.srpgBattler().srpgParam('mov');
-    var i;
-	var cant_mov = false;
-	//新增mov_up、mov_down、dot_mov状态信息
-	if (this.srpgBattler()._states.length > 0) {
-		for (i = 0; i < this.srpgBattler()._states.length; i++) {
-			if($dataStates[this.srpgBattler()._states[i]].meta.mov_up) {
-				mov += Math.abs($dataStates[this.srpgBattler()._states[i]].meta.mov_up);
-			}
-			if($dataStates[this.srpgBattler()._states[i]].meta.mov_down) {
-				mov -= Math.abs($dataStates[this.srpgBattler()._states[i]].meta.mov_down);
-			}
-			if($dataStates[this.srpgBattler()._states[i]].meta.dot_mov) {
-				cant_mov = true;
-			}
-		}
-	}
-	if (cant_mov)
-		mov = 0;
-    return Math.max(mov, 0);
+    return this.srpgBattler().mov2();
   };
-  
+
   // イベントの索敵距離を返す
   Game_Event.prototype.search = function() {
     return this.srpgBattler().srpgParam('search');
@@ -2020,7 +2121,6 @@ Imported.TMSrpg = true;
     this.turnTowardXy(x, y);
     this._moved = true;     // 移動済みフラグを立てる
     this.endSrpgAction();   // 行動を終了する
-	this.SrpgEventFilter(false); //进行渲染
   };
 
   // 事件待机黑白滤镜
@@ -2032,12 +2132,18 @@ Imported.TMSrpg = true;
 		var e = $gameMap.event( this._eventId );
 		e._drill_EvF.openFilter = true;
 		e._drill_EvF.setColorLinear = ["黑白",255,0];
+		e._srpgRefreshHpGauge = 1;
+		e._srpgRefreshStateIcon = 1;
 	} else {
 		if( $gameMap.drill_EvF_isEventExist( this._eventId ) == false ){ return; }
 		var e = $gameMap.event( this._eventId );
 		e._drill_EvF.openFilter = true;
 		e._drill_EvF.setColorLinear = ["黑白",0,1];
 	}
+
+	//console.log(this);
+	//_Sprite_Character_update;
+    //Sprite_Character.prototype.updateHpGauge();
   };
 
   // イベントの索敵距離内に敵対ユニットがいるかどうかを返す
@@ -2430,6 +2536,7 @@ Imported.TMSrpg = true;
   Sprite_Character.prototype.setupDamagePopup = function() {
     var battler = this._character.srpgBattler();
     if (battler.isDamagePopupRequested()) {
+	  console.log(this.children);
       var sprite = new Sprite_Damage();
       sprite.x = this.x;
       sprite.y = this.y;
@@ -2444,10 +2551,17 @@ Imported.TMSrpg = true;
   // HPゲージの更新
   Sprite_Character.prototype.updateHpGauge = function() {
     if (this._character.isSrpgUnit()) {
-      if (!this._srpgHpGaugeSprite) {
-        this._srpgHpGaugeSprite = new Sprite_SrpgHpGauge(this._character);
-        this._srpgHpGaugeSprite.y = -2;
-        this.addChild(this._srpgHpGaugeSprite);
+	  if(this._character._srpgRefreshHpGauge) {
+		this.removeChild(this._srpgHpGaugeSprite);
+		//this._srpgHpGaugeSprite = null;
+		if (!this._srpgHpGaugeSprite) {
+			console.log(this);
+			this._srpgHpGaugeSprite = new Sprite_SrpgHpGauge(this._character);
+			this._srpgHpGaugeSprite.y = -2;
+		}
+		console.log(this);
+		this.addChild(this._srpgHpGaugeSprite);
+		this._character._srpgRefreshHpGauge = 0;
       }
     }
   };
@@ -2455,15 +2569,22 @@ Imported.TMSrpg = true;
   // ステートアイコンの更新
   Sprite_Character.prototype.updateStateIcon = function() {
     if (this._character.isSrpgUnit()) {
-      if (!this._srpgStateIconSprite) {
-        this._srpgStateIconSprite = new Sprite_StateIcon();
-        this._srpgStateIconSprite.setup(this._character.srpgBattler());
-        this._srpgStateIconSprite.y = -40;
-        this._srpgStateIconSprite.z = 9;
-        this._srpgStateIconSprite.scale.x = 0.5;
-        this._srpgStateIconSprite.scale.y = 0.5;
+	  if(this._character._srpgRefreshStateIcon) {
+		this.removeChild(this._srpgStateIconSprite);
+		//this._srpgStateIconSprite = null;
+		if (!this._srpgStateIconSprite) {
+			console.log(this);
+			this._srpgStateIconSprite = new Sprite_StateIcon();
+			this._srpgStateIconSprite.setup(this._character.srpgBattler());
+			this._srpgStateIconSprite.y = -40;
+			this._srpgStateIconSprite.z = 9;
+			this._srpgStateIconSprite.scale.x = 0.5;
+			this._srpgStateIconSprite.scale.y = 0.5;
+        }
+		console.log(this);
         this.addChild(this._srpgStateIconSprite);
-      }
+		this._character._srpgRefreshStateIcon = 0;
+	  }
     }
   };
 
@@ -2491,6 +2612,10 @@ Imported.TMSrpg = true;
 
   Sprite_SrpgHpGauge.prototype.initialize = function(character) {
     this._battler = character.srpgBattler();
+	//var event = character(eventId);
+	//event.SrpgEventFilter(true);
+	//console.log(this._battler.srpgEvent());
+	//this._battler.srpgEvent().SrpgEventFilter(true);
     Sprite.prototype.initialize.call(this);
     this.bitmap = new Bitmap(32, 4);
     this.z = 9;
@@ -2530,18 +2655,50 @@ Imported.TMSrpg = true;
 
   Window_Status.prototype.drawParameters = function(x, y) {
     var lineHeight = this.lineHeight();
+    var mov = this._actor.mov2();
+	var level, color;
+
+	if(this._actor._actorId) {
+	  level = this._actor._level;
+	}
+
     for (var i = 0; i < 6; i++) {
       var paramId = i + 2;
       var y2 = y + lineHeight * i;
       this.changeTextColor(this.systemColor());
       this.drawText(TextManager.param(paramId), 6, y2, 120);
-      this.resetTextColor();
+	  color = this._actor.params_coloring(paramId, level);
+	  switch (color) {
+	  case -1:
+		 this.changeTextColor(this.powerDownColor());
+		 break;
+	  case 0:
+         this.resetTextColor();
+		 break;
+	  case 1:
+		 this.changeTextColor(this.powerUpColor());
+		 break;
+	  case 2:
+		 this.changeTextColor(this.crisisColor());
+		 break;
+	  default:
+		 this.resetTextColor();
+		 break;
+	  }
       this.drawText(this._actor.param(paramId), 126, y2, 60, 'right');
     }
-    this.drawText(this._actor.srpgParam('mov'), 350, y, 60, 'right');
 
-	console.log(this);
-	console.log(this._actor.srpgParam('mov'));
+	if (mov === 0)
+		this.changeTextColor(this.powerDownColor());
+	else if (mov < this._actor.srpgParam('mov'))
+		this.changeTextColor(this.crisisColor());
+	else if (mov > this._actor.srpgParam('mov'))
+		this.changeTextColor(this.powerUpColor());
+	else
+		this.resetTextColor();
+		
+    this.drawText(mov, 350, y, 60, 'right');
+
     this.changeTextColor(this.systemColor());
     this.drawText(moveParam, 230, y, 120);
   };
@@ -2914,18 +3071,50 @@ Imported.TMSrpg = true;
 
   Window_SrpgStatus.prototype.refreshStatus = function(userBattler) {
     var lineHeight = this.lineHeight();
+    var mov = userBattler.mov2();
+	var level, color;
+
+	if(userBattler._actorId) {
+	  level = userBattler._level;
+	}
+
     for (var i = 0; i < 6; i++) {
       var paramId = i + 2;
       var x = i % 2 * 224 + 360;
       var y = lineHeight * Math.floor(i / 2);
       this.changeTextColor(this.systemColor());
       this.drawText(TextManager.param(paramId), x, y, 120);
-      this.resetTextColor();
+	  color = userBattler.params_coloring(paramId, level);
+	  switch (color) {
+	  case -1:
+		 this.changeTextColor(this.powerDownColor());
+		 break;
+	  case 0:
+         this.resetTextColor();
+		 break;
+	  case 1:
+		 this.changeTextColor(this.powerUpColor());
+		 break;
+	  case 2:
+		 this.changeTextColor(this.crisisColor());
+		 break;
+	  default:
+		 this.resetTextColor();
+		 break;
+	  }
       this.drawText(userBattler.param(paramId), x + 120, y, 60, 'right');
     }
-	console.log(this);
-	console.log(userBattler.srpgParam('mov'));
-    this.drawText(userBattler.srpgParam('mov'), 480, lineHeight * 3, 60, 'right');
+
+	if (mov === 0)
+		this.changeTextColor(this.powerDownColor());
+	else if (mov < userBattler.srpgParam('mov'))
+		this.changeTextColor(this.crisisColor());
+	else if (mov > userBattler.srpgParam('mov'))
+		this.changeTextColor(this.powerUpColor());
+	else
+		this.resetTextColor();
+
+    this.drawText(mov, 480, lineHeight * 3, 60, 'right');
     this.changeTextColor(this.systemColor());
     this.drawText(moveParam, 360, lineHeight * 3, 120);
   };
@@ -3442,8 +3631,8 @@ Imported.TMSrpg = true;
       this._srpgTurnState = !event.canSrpgMove() ? 5 : 0;
       break;
     case 5:   // 行動後の待機選択
-      this.srpgAutoWaiting(true);
 	  event.SrpgEventFilter(false);
+      this.srpgAutoWaiting(true);
       break;
     case 12:  // 移動結果の反映
       this._srpgStatusWindow.refresh();
@@ -3778,6 +3967,7 @@ Imported.TMSrpg = true;
   
   // 範囲選択の決定【待機】
   Scene_Map.prototype.okAreaWaiting = function(x, y) {
+	this._srpgStatusWindow.user().SrpgEventFilter(false); //进行渲染
     this._srpgStatusWindow.user().executeSrpgWaiting(x, y);
     $gamePlayer.setSrpgCameraXy(x, y);      // カメラ移動
     this._helpWindow.close();
